@@ -1,4 +1,4 @@
-export type Episode = { name: string; url: string; size: number };
+export type Episode = { name: string; url: string; size: number; blob: Blob };
 
 export function prettyName(name: string) {
   const match = name.match(/(\d+)/);
@@ -30,7 +30,7 @@ export function EpisodeList({
         {episodes.map((ep) => {
           const active = activeName === ep.name;
           return (
-            <div key={ep.name} className={`card group overflow-hidden ${active ? "!border-accent" : ""}`}>
+            <div key={ep.name} className={`card group overflow-hidden ${active ? "border-accent" : ""}`}>
               <button type="button" onClick={() => onSelect(ep.name)}
                 className="grid aspect-video w-full place-items-center bg-surface2 text-center">
                 {active

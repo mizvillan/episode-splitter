@@ -22,7 +22,7 @@ async function probeDuration(ffmpeg: FFmpeg, input: string): Promise<number> {
 }
 
 function showTitle(sourceName: string) {
-  return sourceName.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").replace(/\s*-\s*episode\s*\d+\s*$/i, "").trim() || sourceName;
+  return sourceName.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").replace(/\s+episode\s*\d+\s*$/i, "").replace(/\s{2,}/g, " ").trim() || sourceName;
 }
 
 /** Mizwatch AnimeCard-style card: 2/3 poster, chips, title + meta below. */
@@ -94,7 +94,7 @@ export default function App() {
   useEffect(() => {
     if (view !== "watch" || !openShow) { setWatchEpisodes([]); return; }
     const items = shows.find(([s]) => s === openShow)?.[1] ?? [];
-    const eps: Episode[] = items.map((it) => ({ name: it.name, url: URL.createObjectURL(it.blob), size: it.blob.size }));
+    const eps: Episode[] = items.map((it) => ({ name: it.name, url: URL.createObjectURL(it.blob), size: it.blob.size, blob: it.blob }));
     setWatchEpisodes(eps);
     setWatchActive(eps[0]?.name ?? null);
     return () => eps.forEach((ep) => URL.revokeObjectURL(ep.url));
@@ -164,7 +164,7 @@ export default function App() {
         await ffmpeg.exec(["-ss", String(start), "-i", input, "-t", String(seconds), "-c", "copy", "-avoid_negative_ts", "make_zero", name]);
         const data = (await ffmpeg.readFile(name)) as Uint8Array;
         const blob = new Blob([data.slice().buffer], { type: "video/mp4" });
-        built.push({ name, url: URL.createObjectURL(blob), size: blob.size });
+        built.push({ name, url: URL.createObjectURL(blob), size: blob.size, blob });
         await ffmpeg.deleteFile(name);
         bump(((i + 1) / partCount) * 100);
       }
@@ -173,11 +173,15 @@ export default function App() {
       setEpisodes(built);
       setActiveName(built[0]?.name ?? null);
       const createdAt = Date.now();
-      const stored: Stored[] = await Promise.all(built.map(async (ep, i) => ({
+      const stored: Stored[] = built.map((ep, i) => ({
         id: `${createdAt}-${ep.name}`, name: ep.name, sourceName: file.name, createdAt: createdAt + i,
-        blob: await fetch(ep.url).then((r) => r.blob()),
-      })));
-      await saveEpisodes(stored);
+        blob: ep.blob,
+      }));
+      try {
+        await saveEpisodes(stored);
+      } catch {
+        setError("Episodes were cut but could not be saved to the browser library (storage full?). They are still playable and downloadable from this page.");
+      }
       setLibrary(await listEpisodes());
       bump(100);
       setStatus(built.length ? `Done: ${built.length} episode${built.length === 1 ? "" : "s"}.` : "No episodes were produced. Check the file.");
@@ -249,12 +253,13 @@ export default function App() {
             onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
             onDragLeave={() => setDragging(false)}
             onDrop={(e) => { e.preventDefault(); setDragging(false); pickFile(e.dataTransfer.files[0]); }}
-            className={`card cursor-pointer border-2 border-dashed p-10 text-center ${dragging ? "border-accent" : ""}`}
+            className={`card cursor-pointer border-2 border-dashed p-8 text-center transition-colors ${dragging ? "border-accent bg-accent/5" : ""}`}
             onClick={() => document.getElementById("file-input")?.click()}>
             <input id="file-input" type="file" accept=".mp4,.mkv,video/mp4,video/x-matroska" className="hidden"
               onChange={(e) => pickFile(e.target.files?.[0])} />
-            <p className="text-lg text-ink">{file ? file.name : "Drag & drop an .mp4 or .mkv here"}</p>
-            <p className="mt-1 text-sm text-muted">or click to choose a file</p>
+            <svg viewBox="0 0 24 24" className="mx-auto h-8 w-8 text-accent" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><path d="m17 8-5-5-5 5" /><path d="M12 3v12" /></svg>
+            <p className="mt-2 truncate text-base font-semibold text-ink sm:text-lg">{file ? file.name : "Drag & drop an .mp4 or .mkv here"}</p>
+            <p className="mt-1 text-sm text-muted">{file ? "Click to choose a different file" : "or click to choose a file · up to ~2 hours, never uploaded"}</p>
           </div>
 
           <div className="flex flex-wrap items-end gap-4">
@@ -270,7 +275,7 @@ export default function App() {
 
           {(busy || progress > 0) && (
             <div className="space-y-2">
-              <div className="h-2 w-full overflow-hidden rounded-full bg-surface2">
+              <div className="h-2 w-full overflow-hidden rounded-full border border-line bg-surface2">
                 <div className="h-full bg-accent transition-all" style={{ width: `${progress}%` }} />
               </div>
               <p className="text-sm text-muted">{status} {progress}%</p>
