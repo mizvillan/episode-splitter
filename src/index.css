@@ -1,0 +1,121 @@
+@import "tailwindcss" source("../src");
+
+/* Mizwatch design tokens (copied). */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface2: var(--surface-2);
+  --color-line: var(--line);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accentink: var(--accent-ink);
+  --font-sans: "Inter", "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+:root {
+  color-scheme: dark;
+  --bg: #0a0a0c;
+  --surface: #121214;
+  --surface-2: #1b1b1f;
+  --line: #242429;
+  --ink: #f4f4f6;
+  --muted: #9b9ba6;
+  --accent: #9d7dff;
+  --accent-ink: #16081f;
+}
+
+body {
+  margin: 0;
+  overflow-x: hidden;
+  background:
+    radial-gradient(circle at 78% -10%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 30rem),
+    var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@layer components {
+  .card {
+    background: color-mix(in srgb, var(--surface) 74%, transparent);
+    border: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
+    border-radius: 1rem;
+    transition: border-color 200ms ease, box-shadow 200ms ease, transform 200ms ease;
+  }
+
+  .card:hover {
+    border-color: color-mix(in srgb, var(--accent) 30%, var(--line));
+    box-shadow: 0 16px 40px -22px color-mix(in srgb, var(--accent) 35%, transparent);
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: 0.7rem;
+    padding: 0.55rem 0.95rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    border: 1px solid var(--line);
+    background: var(--surface-2);
+    color: var(--ink);
+    cursor: pointer;
+    transition: background 120ms ease, border-color 120ms ease, transform 120ms ease;
+  }
+
+  .btn:hover {
+    border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  }
+
+  .btn:active {
+    transform: translateY(1px);
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-ink);
+  }
+
+  .btn-primary:hover {
+    background: color-mix(in srgb, var(--accent) 85%, white);
+    border-color: transparent;
+  }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: var(--surface-2);
+    padding: 0.2rem 0.6rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+
+  .tile-chip {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 0.4rem;
+    border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+    background: color-mix(in srgb, var(--surface-2) 70%, transparent);
+    padding: 0.1rem 0.4rem;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--muted);
+  }
+}
