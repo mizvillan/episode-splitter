@@ -3,7 +3,7 @@ import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { toBlobURL } from "@ffmpeg/util";
 import { EpisodeList, prettyName, type Episode } from "./EpisodeList";
 import { VideoPlayer } from "./VideoPlayer";
-import { deleteEpisode, listEpisodes, saveEpisodes, type Stored } from "./library";
+import { checkShowCode, deleteEpisode, listEpisodes, listShowCodes, saveEpisodes, setShowCode, type Stored } from "./library";
 import { grabPoster } from "./poster";
 
 const CORE_BASE = "https://unpkg.com/@ffmpeg/core@0.12.10/dist/esm";
@@ -26,7 +26,7 @@ function showTitle(sourceName: string) {
 }
 
 /** Mizwatch AnimeCard-style card: 2/3 poster, chips, title + meta below. */
-function ShowCard({ show, items, onOpen }: { show: string; items: Stored[]; onOpen: () => void }) {
+function ShowCard({ show, items, locked, onOpen }: { show: string; items: Stored[]; locked: boolean; onOpen: () => void }) {
   const [poster, setPoster] = useState<string | null>(null);
   useEffect(() => {
     let live = true;
@@ -49,6 +49,12 @@ function ShowCard({ show, items, onOpen }: { show: string; items: Stored[]; onOp
             )}
           </div>
           <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/75 via-black/0 to-black/0 opacity-0 transition group-hover:opacity-100" />
+          {locked && (
+            <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-md bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/85 backdrop-blur">
+              <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><rect x="4" y="10" width="16" height="11" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3" /></svg>
+              Locked
+            </span>
+          )}
           <span className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-md bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/85 backdrop-blur">
             {items.length} EP
           </span>
@@ -83,6 +89,15 @@ export default function App() {
   const [library, setLibrary] = useState<Stored[]>([]);
   const [view, setView] = useState<View>("split");
   const [openShow, setOpenShow] = useState<string | null>(null);
+  // Access codes: sourceName -> codeHash. Unlocks are in-memory only, so a
+  // refresh re-locks everything.
+  const [codes, setCodes] = useState<Record<string, string>>({});
+  const [unlocked, setUnlocked] = useState<string[]>([]);
+  const [gateShow, setGateShow] = useState<string | null>(null);
+  const [gateInput, setGateInput] = useState("");
+  const [gateError, setGateError] = useState<string | null>(null);
+  const [newCode, setNewCode] = useState<Record<string, string>>({});
+  const [lockInput, setLockInput] = useState("");
 
   const shows = Object.entries(
     library.reduce<Record<string, Stored[]>>((acc, item) => { (acc[item.sourceName] ??= []).push(item); return acc; }, {}),
@@ -103,8 +118,31 @@ export default function App() {
   const watchCurrent = watchEpisodes.find((ep) => ep.name === watchActive) ?? watchEpisodes[0] ?? null;
 
   useEffect(() => {
-    void listEpisodes().then(setLibrary).catch(() => setLibrary([]));
+    void Promise.all([listEpisodes(), listShowCodes()])
+      .then(([eps, c]) => { setLibrary(eps); setCodes(c); })
+      .catch(() => setLibrary([]));
   }, []);
+
+  const refreshCodes = async () => setCodes(await listShowCodes());
+
+  function tryOpen(show: string) {
+    if (codes[show] && !unlocked.includes(show)) {
+      setGateShow(show); setGateInput(""); setGateError(null); return;
+    }
+    setOpenShow(show); setView("watch");
+  }
+
+  async function submitGate() {
+    if (!gateShow) return;
+    if (await checkShowCode(gateShow, gateInput)) {
+      setUnlocked((u) => [...u, gateShow]);
+      const show = gateShow;
+      setGateShow(null); setGateInput("");
+      setOpenShow(show); setView("watch");
+    } else {
+      setGateError("Wrong code. Try again.");
+    }
+  }
 
   // Monotonic progress: never let the bar go backwards.
   const bump = (value: number) => {
@@ -182,7 +220,8 @@ export default function App() {
       } catch {
         setError("Episodes were cut but could not be saved to the browser library (storage full?). They are still playable and downloadable from this page.");
       }
-      setLibrary(await listEpisodes());
+      const [eps, c] = await Promise.all([listEpisodes(), listShowCodes()]);
+      setLibrary(eps); setCodes(c);
       bump(100);
       setStatus(built.length ? `Done: ${built.length} episode${built.length === 1 ? "" : "s"}.` : "No episodes were produced. Check the file.");
     } catch (e) {
@@ -210,6 +249,22 @@ export default function App() {
     </section>
   );
 
+  const gateBlock = gateShow ? (
+    <div className="card space-y-3 p-4">
+      <h3 className="text-base font-semibold text-ink">🔒 {showTitle(gateShow)} is locked</h3>
+      <p className="text-sm text-muted">Enter the access code to open this show.</p>
+      <div className="flex flex-wrap items-center gap-2">
+        <input type="password" autoFocus value={gateInput} placeholder="Access code"
+          onChange={(e) => setGateInput(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") void submitGate(); }}
+          className="input w-56" />
+        <button type="button" onClick={() => void submitGate()} className="btn btn-primary">Unlock</button>
+        <button type="button" onClick={() => setGateShow(null)} className="btn">Cancel</button>
+      </div>
+      {gateError && <p className="text-sm text-red-300">{gateError}</p>}
+    </div>
+  ) : null;
+
   return (
     <main className="mx-auto max-w-6xl space-y-6 px-4 py-6 sm:px-6">
       <header className="flex flex-wrap items-center justify-between gap-4">
@@ -226,23 +281,56 @@ export default function App() {
       {view === "home" && (
         <section className="space-y-4">
           <h2 className="text-xl font-semibold text-ink">Shows</h2>
+          {gateBlock}
           {shows.length === 0 && <p className="text-muted">Nothing saved yet. Split a video and it shows up here.</p>}
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
             {shows.map(([show, items]) => (
-              <ShowCard key={show} show={show} items={items} onOpen={() => { setOpenShow(show); setView("watch"); }} />
+              <ShowCard key={show} show={show} items={items} locked={Boolean(codes[show])} onOpen={() => tryOpen(show)} />
             ))}
           </div>
+          {shows.length > 0 && (
+            <div className="card space-y-3 p-4">
+              <h3 className="text-base font-semibold text-ink">Access codes</h3>
+              <p className="text-sm text-muted">Lock a show with a code and only people you share it with can open it. Codes live on this device only — they never leave the browser.</p>
+              {shows.map(([show]) => (
+                <div key={show} className="flex flex-wrap items-center gap-2">
+                  <span className="w-44 truncate text-sm font-medium text-ink">{showTitle(show)}</span>
+                  <span className="chip">{codes[show] ? "Locked" : "Open"}</span>
+                  <input type="password" value={newCode[show] ?? ""} placeholder={codes[show] ? "New code" : "Set a code"}
+                    onChange={(e) => setNewCode((m) => ({ ...m, [show]: e.target.value }))} className="input w-44" />
+                  <button type="button" className="btn" disabled={!(newCode[show] ?? "").trim()}
+                    onClick={async () => { await setShowCode(show, (newCode[show] ?? "").trim()); await refreshCodes(); setNewCode((m) => ({ ...m, [show]: "" })); }}>
+                    Save code
+                  </button>
+                  {codes[show] && (
+                    <button type="button" className="btn" onClick={async () => { await setShowCode(show, null); await refreshCodes(); }}>
+                      Remove
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </section>
       )}
 
       {view === "watch" && (
         <section className="space-y-4">
           <div className="flex flex-wrap items-center gap-3">
-            <button type="button" onClick={() => setView("home")} className="btn">← All shows</button>
+            <button type="button" onClick={() => { setOpenShow(null); setView("home"); }} className="btn">← All shows</button>
             <h2 className="text-xl font-semibold text-ink">{openShow ? showTitle(openShow) : ""}</h2>
             <span className="chip">{watchEpisodes.length} episodes</span>
           </div>
-          {watchCurrent ? playerBlock(watchEpisodes, watchCurrent, setWatchActive, openShow ?? undefined)
+          {openShow && codes[openShow] && !unlocked.includes(openShow) ? (
+            <>
+              {gateBlock ?? (
+                <div className="card space-y-3 p-4">
+                  <h3 className="text-base font-semibold text-ink">🔒 This show is locked</h3>
+                  <button type="button" className="btn btn-primary" onClick={() => { setGateShow(openShow); setGateInput(""); setGateError(null); }}>Enter access code</button>
+                </div>
+              )}
+            </>
+          ) : watchCurrent ? playerBlock(watchEpisodes, watchCurrent, setWatchActive, openShow ?? undefined)
             : <p className="text-muted">No episodes left for this show.</p>}
         </section>
       )}
@@ -285,6 +373,20 @@ export default function App() {
           {error && <p className="rounded-lg border border-red-900 bg-red-950/60 px-4 py-2 text-red-300">{error}</p>}
 
           {active && playerBlock(episodes, active, setActiveName)}
+
+          {!busy && episodes.length > 0 && file && (
+            <div className="card flex flex-wrap items-end gap-3 p-4">
+              <label className="flex flex-col text-sm text-muted">
+                Lock this show with a code (optional — only people with the code can open it)
+                <input type="password" value={lockInput} placeholder="Access code"
+                  onChange={(e) => setLockInput(e.target.value)} className="input mt-1 w-56" />
+              </label>
+              <button type="button" className="btn" disabled={!lockInput.trim()}
+                onClick={async () => { await setShowCode(file.name, lockInput.trim()); await refreshCodes(); setLockInput(""); setStatus(`Locked "${showTitle(file.name)}" with a code. Share the code to grant access.`); }}>
+                Lock show
+              </button>
+            </div>
+          )}
         </>
       )}
     </main>
